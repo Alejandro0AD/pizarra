@@ -1,0 +1,162 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Pizarra Distribuida</title>
+    <!-- Incluye la biblioteca Socket.IO para la comunicación en tiempo real -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.0.0/socket.io.min.js"></script>
+    <style>
+        /* Estilos para el canvas y herramientas */
+        #canvas {
+            border: 1px solid black;
+            touch-action: none; /* Previene el desplazamiento táctil en dispositivos móviles */
+        }
+        #tools {
+            margin-bottom: 10px;
+        }
+        /* Estilos para temas claros y oscuros */
+        body.light-theme {
+            background-color: white;
+            color: black;
+        }
+        body.dark-theme {
+            background-color: black;
+            color: white;
+        }
+    </style>
+</head>
+<body class="light-theme">
+    <!-- Contenedor de herramientas -->
+    <div id="tools">
+        <button onclick="setTool('pen')">Pencil</button>
+        <button onclick="setTool('line')">Line</button>
+        <button onclick="setTool('rectangle')">Rectangle</button>
+        <button onclick="setTool('circle')">Circle</button>
+        <button onclick="setTheme('light')">Light Theme</button>
+        <button onclick="setTheme('dark')">Dark Theme</button>
+    </div>
+    <!-- Canvas donde se dibujará -->
+    <canvas id="canvas" width="800" height="600"></canvas>
+
+    <script>
+        // Obtener el canvas y su contexto de dibujo
+        const canvas = document.getElementById('canvas');
+        const context = canvas.getContext('2d');
+        const socket = io(); // Inicializar Socket.IO
+
+        // Variables de estado
+        let drawing = false;
+        let tool = 'pen';
+        let color = 'white'; // Color por defecto del lápiz
+        let startX, startY; // Coordenadas iniciales del dibujo
+
+        // Establecer color de trazo por defecto
+        context.strokeStyle = color;
+
+        // Función para seleccionar herramienta
+        function setTool(selectedTool) {
+            tool = selectedTool;
+        }
+
+        // Función para seleccionar tema
+        function setTheme(theme) {
+            document.body.className = theme + '-theme';
+        }
+
+        // Función para seleccionar color
+        function setColor(selectedColor) {
+            color = selectedColor;
+            context.strokeStyle = color;
+        }
+
+        // Event listener para el inicio del dibujo
+        canvas.addEventListener('mousedown', (e) => {
+            drawing = true;
+            startX = e.clientX - canvas.offsetLeft;
+            startY = e.clientY - canvas.offsetTop;
+            if (tool === 'pen') {
+                draw(startX, startY, false);
+            }
+        });
+
+        // Event listener para el movimiento del mouse durante el dibujo
+        canvas.addEventListener('mousemove', (e) => {
+            if (drawing) {
+                const x = e.clientX - canvas.offsetLeft;
+                const y = e.clientY - canvas.offsetTop;
+                if (tool === 'pen') {
+                    draw(x, y, true);
+                }
+            }
+        });
+
+        // Event listener para finalizar el dibujo
+        canvas.addEventListener('mouseup', (e) => {
+            drawing = false;
+            const endX = e.clientX - canvas.offsetLeft;
+            const endY = e.clientY - canvas.offsetTop;
+            if (tool !== 'pen') {
+                drawShape(startX, startY, endX, endY, tool);
+            }
+        });
+
+        // Event listener para detener el dibujo si el mouse sale del canvas
+        canvas.addEventListener('mouseleave', () => {
+            drawing = false;
+        });
+
+        // Función para dibujar con el lápiz
+        const draw = (x, y, isDrawing) => {
+            if (isDrawing) {
+                context.lineTo(x, y);
+                context.stroke();
+                // Emitir evento de dibujo a través de Socket.IO
+                socket.emit('draw_event', { tool, x, y, drawing: true, color });
+            } else {
+                context.beginPath();
+                context.moveTo(x, y);
+                // Emitir evento de inicio de dibujo a través de Socket.IO
+                socket.emit('draw_event', { tool, x, y, drawing: false, color });
+            }
+        };
+
+        // Función para dibujar formas (línea, rectángulo, círculo)
+        const drawShape = (x1, y1, x2, y2, tool) => {
+            context.beginPath();
+            if (tool === 'line') {
+                context.moveTo(x1, y1);
+                context.lineTo(x2, y2);
+            } else if (tool === 'rectangle') {
+                context.rect(x1, y1, x2 - x1, y2 - y1);
+            } else if (tool === 'circle') {
+                const radius = Math.sqrt((x2 - x1) ** 2 + (y2 - y1) ** 2);
+                context.arc(x1, y1, radius, 0, 2 * Math.PI);
+            }
+            context.stroke();
+            // Emitir evento de dibujo de forma a través de Socket.IO
+            socket.emit('draw_shape', { tool, x1, y1, x2, y2, color });
+        };
+
+        // Event listener para recibir y dibujar eventos de otros usuarios
+        socket.on('draw_event', (data) => {
+            context.strokeStyle = data.color; // Establecer color recibido
+            if (data.tool === 'pen') {
+                if (data.drawing) {
+                    context.lineTo(data.x, data.y);
+                    context.stroke();
+                } else {
+                    context.beginPath();
+                    context.moveTo(data.x, data.y);
+                }
+            }
+        });
+
+        // Event listener para recibir y dibujar formas de otros usuarios
+        socket.on('draw_shape', (data) => {
+            context.strokeStyle = data.color; // Establecer color recibido
+            drawShape(data.x1, data.y1, data.x2, data.y2, data.tool);
+        });
+    </script>
+</body>
+</html>
